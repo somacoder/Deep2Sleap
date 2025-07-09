@@ -3,3 +3,4 @@ Converts DeepLabCut Inference h5 output to Sleap Project for both Humans and Dog
 
 ![alt text](https://ftp.somacoder.games/DLC2Sleap_icon2.png)
 
+![External GIF](https://ftp.somacoder.games/combined.gif)
