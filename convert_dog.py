@@ -5,6 +5,9 @@ import sleap
 from sleap.instance import Point, PredictedPoint
 from pathlib import Path
 
+# Configuration: Number of top animals to keep (ranked by detection quality)
+TOP_N_ANIMALS = 1  # Change this to keep more animals (e.g., 2, 3, etc.)
+
 def extract_and_convert_dog_h5_to_sleap(h5_path, video_path, output_slp_path):
     """Extract dog H5 data and convert directly to SLEAP format"""
     
@@ -23,6 +26,7 @@ def extract_and_convert_dog_h5_to_sleap(h5_path, video_path, output_slp_path):
     print(f"Coordinates: {coords}")
     print(f"DataFrame shape: {df.shape}")
     print(f"Number of frames: {len(df)}")
+    print(f"Keeping top {TOP_N_ANIMALS} animals only")
     
     # Filter out antler bodyparts and non-essential body parts since they're not relevant for dogs
     relevant_bodyparts = [bp for bp in bodyparts if 'antler' not in bp.lower() and 
@@ -33,6 +37,41 @@ def extract_and_convert_dog_h5_to_sleap(h5_path, video_path, output_slp_path):
     
     print(f"Original bodyparts ({len(bodyparts)}): {bodyparts}")
     print(f"Relevant bodyparts ({len(relevant_bodyparts)}): {relevant_bodyparts}")
+    
+    # Rank animals by detection quality across all frames
+    animal_scores = {}
+    for animal in animals:
+        total_valid_points = 0
+        total_confidence = 0
+        point_count = 0
+        
+        for frame_idx in range(len(df)):
+            for bodypart in relevant_bodyparts:
+                try:
+                    likelihood = df.loc[frame_idx, (scorer, animal, bodypart, 'likelihood')]
+                    x = df.loc[frame_idx, (scorer, animal, bodypart, 'x')]
+                    y = df.loc[frame_idx, (scorer, animal, bodypart, 'y')]
+                    
+                    if (pd.notna(x) and pd.notna(y) and pd.notna(likelihood) and
+                        x > 0 and y > 0 and likelihood > 0):
+                        total_valid_points += 1
+                        total_confidence += likelihood
+                        point_count += 1
+                except:
+                    continue
+        
+        # Score = average confidence * number of valid detections
+        avg_confidence = total_confidence / max(point_count, 1)
+        animal_scores[animal] = avg_confidence * total_valid_points
+    
+    # Select top N animals
+    top_animals = sorted(animal_scores.items(), key=lambda x: x[1], reverse=True)[:TOP_N_ANIMALS]
+    selected_animals = [animal for animal, score in top_animals]
+    
+    print(f"\nAnimal ranking by detection quality:")
+    for animal, score in sorted(animal_scores.items(), key=lambda x: x[1], reverse=True):
+        status = "✓ SELECTED" if animal in selected_animals else "✗ skipped"
+        print(f"  {animal}: {score:.1f} {status}")
     
     # Create SLEAP skeleton with only relevant quadruped bodyparts
     skeleton = sleap.Skeleton.from_names_and_edge_inds(
@@ -88,18 +127,18 @@ def extract_and_convert_dog_h5_to_sleap(h5_path, video_path, output_slp_path):
     # Process each frame
     valid_frames = 0
     total_instances = 0
-    confidence_threshold = 0.1  # Minimum confidence for valid keypoints
+    confidence_threshold = 0  # Minimum confidence for valid keypoints
     
     for frame_idx in range(len(df)):
         instances = []
         
-        # Process each animal in this frame
-        for animal in animals:
+        # Process only selected animals in this frame
+        for animal in selected_animals:  # Changed from all animals
             points = {}
             valid_points = 0
             
             # Process each bodypart
-            for bodypart in relevant_bodyparts:  # Changed from 'bodyparts'
+            for bodypart in relevant_bodyparts:
                 try:
                     # Get coordinates: (scorer, animal, bodypart, coordinate)
                     likelihood = df.loc[frame_idx, (scorer, animal, bodypart, 'likelihood')]
@@ -157,6 +196,7 @@ def extract_and_convert_dog_h5_to_sleap(h5_path, video_path, output_slp_path):
         print(f"\n=== DOG CONVERSION COMPLETE ===")
         print(f"Valid frames: {valid_frames}/{len(df)}")
         print(f"Total instances: {total_instances}")
+        print(f"Selected animals: {selected_animals}")
         if valid_frames > 0:
             print(f"Average instances per frame: {total_instances/valid_frames:.2f}")
         else:

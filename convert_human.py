@@ -4,6 +4,9 @@ import sleap
 from sleap.instance import Point, PredictedPoint
 from pathlib import Path
 
+# Configuration: Number of top animals to keep (ranked by detection quality)
+TOP_N_ANIMALS = 1  # Change this to keep more animals (e.g., 2, 3, etc.)
+
 def extract_and_convert_h5_to_sleap(h5_path, video_path, output_slp_path):
     """Extract H5 data and convert directly to SLEAP format"""
     
@@ -20,6 +23,49 @@ def extract_and_convert_h5_to_sleap(h5_path, video_path, output_slp_path):
         print(f"Animals: {animals}")
         print(f"Coordinates: {coords}")
         print(f"Pose data shape: {pose_data.shape}")
+        print(f"Keeping top {TOP_N_ANIMALS} animals only")
+        
+        # Reshape data: (frames, animals, bodyparts, coords)
+        n_frames = pose_data.shape[0]
+        n_animals = len(animals)
+        n_bodyparts = len(h5_bodyparts)
+        n_coords = len(coords)
+        
+        reshaped_data = pose_data.reshape(n_frames, n_animals, n_bodyparts, n_coords)
+        print(f"Reshaped to: {reshaped_data.shape}")
+        
+        # Rank animals by detection quality across all frames
+        animal_scores = {}
+        for animal_idx, animal in enumerate(animals):
+            total_valid_points = 0
+            total_confidence = 0
+            point_count = 0
+            
+            for frame_idx in range(n_frames):
+                for bp_idx in range(n_bodyparts):
+                    # Get coordinates (assuming [confidence, x, y] format)
+                    confidence = reshaped_data[frame_idx, animal_idx, bp_idx, 0]
+                    x = reshaped_data[frame_idx, animal_idx, bp_idx, 1]
+                    y = reshaped_data[frame_idx, animal_idx, bp_idx, 2]
+                    
+                    if (x > 0 and y > 0 and confidence > 0 and 
+                        not (np.isnan(x) or np.isnan(y) or np.isnan(confidence))):
+                        total_valid_points += 1
+                        total_confidence += confidence
+                        point_count += 1
+            
+            # Score = average confidence * number of valid detections
+            avg_confidence = total_confidence / max(point_count, 1)
+            animal_scores[animal_idx] = avg_confidence * total_valid_points
+        
+        # Select top N animals
+        top_animals = sorted(animal_scores.items(), key=lambda x: x[1], reverse=True)[:TOP_N_ANIMALS]
+        selected_animal_indices = [animal_idx for animal_idx, score in top_animals]
+        
+        print(f"\nAnimal ranking by detection quality:")
+        for animal_idx, score in sorted(animal_scores.items(), key=lambda x: x[1], reverse=True):
+            status = "✓ SELECTED" if animal_idx in selected_animal_indices else "✗ skipped"
+            print(f"  {animals[animal_idx]}: {score:.1f} {status}")
         
         # Define COCO skeleton order (what SLEAP expects)
         coco_bodyparts = [
@@ -78,15 +124,6 @@ def extract_and_convert_h5_to_sleap(h5_path, video_path, output_slp_path):
                 print(f"  WARNING: {h5_bp} not found in H5 data!")
                 h5_to_coco_mapping.append(-1)  # Mark as missing
         
-        # Reshape data: (frames, animals, bodyparts, coords)
-        n_frames = pose_data.shape[0]
-        n_animals = len(animals)
-        n_bodyparts = len(h5_bodyparts)
-        n_coords = len(coords)
-        
-        reshaped_data = pose_data.reshape(n_frames, n_animals, n_bodyparts, n_coords)
-        print(f"Reshaped to: {reshaped_data.shape}")
-        
         # Create SLEAP skeleton with proper human pose edges
         skeleton = sleap.Skeleton.from_names_and_edge_inds(
             node_names=coco_bodyparts,
@@ -136,13 +173,13 @@ def extract_and_convert_h5_to_sleap(h5_path, video_path, output_slp_path):
         # Process each frame
         valid_frames = 0
         total_instances = 0
-        confidence_threshold = 0.1  # Minimum confidence for valid keypoints
+        confidence_threshold = 0  # Minimum confidence for valid keypoints
         
         for frame_idx in range(n_frames):
             instances = []
             
-            # Process each animal in this frame
-            for animal_idx in range(n_animals):
+            # Process only selected animals in this frame
+            for animal_idx in selected_animal_indices:  # Changed from all animals
                 points = {}
                 valid_points = 0
                 
@@ -208,6 +245,7 @@ def extract_and_convert_h5_to_sleap(h5_path, video_path, output_slp_path):
             print(f"\n=== CONVERSION COMPLETE ===")
             print(f"Valid frames: {valid_frames}/{n_frames}")
             print(f"Total instances: {total_instances}")
+            print(f"Selected animals: {[animals[i] for i in selected_animal_indices]}")
             # Fix division by zero error
             if valid_frames > 0:
                 print(f"Average instances per frame: {total_instances/valid_frames:.2f}")
