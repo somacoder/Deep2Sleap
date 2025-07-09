@@ -24,8 +24,12 @@ def extract_and_convert_dog_h5_to_sleap(h5_path, video_path, output_slp_path):
     print(f"DataFrame shape: {df.shape}")
     print(f"Number of frames: {len(df)}")
     
-    # Filter out antler bodyparts since they're not relevant for dogs
-    relevant_bodyparts = [bp for bp in bodyparts if 'antler' not in bp.lower()]
+    # Filter out antler bodyparts and non-essential body parts since they're not relevant for dogs
+    relevant_bodyparts = [bp for bp in bodyparts if 'antler' not in bp.lower() and 
+                         bp not in ['body_middle_left', 'body_middle_right', 'belly_bottom', 
+                                   'neck_base', 'throat_base', 'throat_end', 
+                                   'mouth_end_left', 'mouth_end_right', 'lower_jaw', 'upper_jaw', 'neck_end',
+                                   'left_earbase', 'left_earend', 'right_earbase', 'right_earend']]
     
     print(f"Original bodyparts ({len(bodyparts)}): {bodyparts}")
     print(f"Relevant bodyparts ({len(relevant_bodyparts)}): {relevant_bodyparts}")
@@ -34,43 +38,16 @@ def extract_and_convert_dog_h5_to_sleap(h5_path, video_path, output_slp_path):
     skeleton = sleap.Skeleton.from_names_and_edge_inds(
         node_names=relevant_bodyparts,
         edge_inds=[
-            # Face/Head core
-            (relevant_bodyparts.index('nose'), relevant_bodyparts.index('upper_jaw')),
-            (relevant_bodyparts.index('nose'), relevant_bodyparts.index('lower_jaw')),
-            (relevant_bodyparts.index('upper_jaw'), relevant_bodyparts.index('lower_jaw')),
-            
-            # Eyes to face
+            # Eyes to nose (head core)
             (relevant_bodyparts.index('left_eye'), relevant_bodyparts.index('nose')),
             (relevant_bodyparts.index('right_eye'), relevant_bodyparts.index('nose')),
             
-            # Ears (base to end, and base to eyes)
-            (relevant_bodyparts.index('left_earbase'), relevant_bodyparts.index('left_earend')),
-            (relevant_bodyparts.index('right_earbase'), relevant_bodyparts.index('right_earend')),
-            (relevant_bodyparts.index('left_earbase'), relevant_bodyparts.index('left_eye')),
-            (relevant_bodyparts.index('right_earbase'), relevant_bodyparts.index('right_eye')),
-            
-            # Mouth corners to jaw
-            (relevant_bodyparts.index('mouth_end_left'), relevant_bodyparts.index('lower_jaw')),
-            (relevant_bodyparts.index('mouth_end_right'), relevant_bodyparts.index('lower_jaw')),
-            
-            # Neck/throat connection
-            (relevant_bodyparts.index('neck_end'), relevant_bodyparts.index('throat_end')),
-            (relevant_bodyparts.index('neck_base'), relevant_bodyparts.index('throat_base')),
-            (relevant_bodyparts.index('neck_end'), relevant_bodyparts.index('upper_jaw')),
-            (relevant_bodyparts.index('throat_end'), relevant_bodyparts.index('lower_jaw')),
+            # Head to body connection - nose directly to back_base
+            (relevant_bodyparts.index('nose'), relevant_bodyparts.index('back_base')),
             
             # Main spine (the core body structure)
-            (relevant_bodyparts.index('neck_base'), relevant_bodyparts.index('back_base')),
             (relevant_bodyparts.index('back_base'), relevant_bodyparts.index('back_middle')),
             (relevant_bodyparts.index('back_middle'), relevant_bodyparts.index('back_end')),
-            
-            # Body width connections
-            (relevant_bodyparts.index('body_middle_left'), relevant_bodyparts.index('body_middle_right')),
-            (relevant_bodyparts.index('back_middle'), relevant_bodyparts.index('body_middle_left')),
-            (relevant_bodyparts.index('back_middle'), relevant_bodyparts.index('body_middle_right')),
-            
-            # Belly connection
-            (relevant_bodyparts.index('belly_bottom'), relevant_bodyparts.index('back_middle')),
             
             # Front legs - connect to front of body
             (relevant_bodyparts.index('back_base'), relevant_bodyparts.index('front_left_thai')),
