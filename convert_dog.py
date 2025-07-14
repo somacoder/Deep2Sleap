@@ -8,6 +8,10 @@ from pathlib import Path
 # Configuration: Number of top animals to keep (ranked by detection quality)
 TOP_N_ANIMALS = 1  # Change this to keep more animals (e.g., 2, 3, etc.)
 
+h5_file = "./videos/pivot_cut_superanimal_quadruped_fasterrcnn_resnet50_fpn_v2_hrnet_w32.h5"
+video_file = "./videos/pivot_cut.mp4"
+output_file = "./pivot_cut.slp"
+
 def extract_and_convert_dog_h5_to_sleap(h5_path, video_path, output_slp_path):
     """Extract dog H5 data and convert directly to SLEAP format"""
     
@@ -33,7 +37,8 @@ def extract_and_convert_dog_h5_to_sleap(h5_path, video_path, output_slp_path):
                          bp not in ['body_middle_left', 'body_middle_right', 'belly_bottom', 
                                    'neck_base', 'throat_base', 'throat_end', 
                                    'mouth_end_left', 'mouth_end_right', 'lower_jaw', 'upper_jaw', 'neck_end',
-                                   'left_earbase', 'left_earend', 'right_earbase', 'right_earend']]
+                                   'left_earbase', 'left_earend', 'right_earbase', 'right_earend',
+                                   'tail_base', 'tail_end']]
     
     print(f"Original bodyparts ({len(bodyparts)}): {bodyparts}")
     print(f"Relevant bodyparts ({len(relevant_bodyparts)}): {relevant_bodyparts}")
@@ -65,14 +70,22 @@ def extract_and_convert_dog_h5_to_sleap(h5_path, video_path, output_slp_path):
         animal_scores[animal] = avg_confidence * total_valid_points
     
     # Select top N animals
-    top_animals = sorted(animal_scores.items(), key=lambda x: x[1], reverse=True)[:TOP_N_ANIMALS]
-    selected_animals = [animal for animal, score in top_animals]
+    if TOP_N_ANIMALS == 0:
+        # Keep all animals if TOP_N_ANIMALS is 0
+        selected_animals = animals
+        print(f"\nTOP_N_ANIMALS set to 0 - keeping ALL animals ({len(animals)})")
+    else:
+        # Select top N animals based on ranking
+        top_animals = sorted(animal_scores.items(), key=lambda x: x[1], reverse=True)[:TOP_N_ANIMALS]
+        selected_animals = [animal for animal, score in top_animals]
+        print(f"\nAnimal ranking by detection quality:")
+        for animal, score in sorted(animal_scores.items(), key=lambda x: x[1], reverse=True):
+            status = "✓ SELECTED" if animal in selected_animals else "✗ skipped"
+            print(f"  {animal}: {score:.1f} {status}")
     
-    print(f"\nAnimal ranking by detection quality:")
-    for animal, score in sorted(animal_scores.items(), key=lambda x: x[1], reverse=True):
-        status = "✓ SELECTED" if animal in selected_animals else "✗ skipped"
-        print(f"  {animal}: {score:.1f} {status}")
-    
+    # Create one Track per selected animal so we can carry identity
+    tracks = {animal: sleap.Track(name=animal) for animal in selected_animals}
+
     # Create SLEAP skeleton with only relevant quadruped bodyparts
     skeleton = sleap.Skeleton.from_names_and_edge_inds(
         node_names=relevant_bodyparts,
@@ -106,9 +119,9 @@ def extract_and_convert_dog_h5_to_sleap(h5_path, video_path, output_slp_path):
             (relevant_bodyparts.index('back_right_thai'), relevant_bodyparts.index('back_right_knee')),
             (relevant_bodyparts.index('back_right_knee'), relevant_bodyparts.index('back_right_paw')),
             
-            # Tail
-            (relevant_bodyparts.index('back_end'), relevant_bodyparts.index('tail_base')),
-            (relevant_bodyparts.index('tail_base'), relevant_bodyparts.index('tail_end')),
+            ## Tail
+            #(relevant_bodyparts.index('back_end'), relevant_bodyparts.index('tail_base')),
+            #(relevant_bodyparts.index('tail_base'), relevant_bodyparts.index('tail_end')),
         ]
     )
     
@@ -168,9 +181,16 @@ def extract_and_convert_dog_h5_to_sleap(h5_path, video_path, output_slp_path):
                     # Skip missing or invalid data
                     continue
             
-            # Only create instance if we have enough valid points
             if valid_points >= 5:  # Require at least 5 valid keypoints
-                instance = sleap.Instance(skeleton=skeleton, points=points)
+                # build instance (don't pass unsupported 'score' kwarg)
+                instance = sleap.Instance(
+                    skeleton=skeleton,
+                    points=points
+                )
+
+                # assign identity
+                instance.track = tracks[animal]
+                
                 instances.append(instance)
                 total_instances += 1
         
@@ -189,6 +209,9 @@ def extract_and_convert_dog_h5_to_sleap(h5_path, video_path, output_slp_path):
     
     # Create labels from the labeled frames
     labels = sleap.Labels(labeled_frames)
+    # Create labels and register the tracks so identity & scores persist
+    for tr in tracks.values():
+        labels.tracks.append(tr)
     
     # Save SLEAP project
     try:
@@ -244,11 +267,7 @@ def analyze_dog_data_quality(h5_path):
     
     print(f"Frames with valid data (first 10): {frames_with_data}/10")
 
-if __name__ == "__main__":
-    h5_file = "./videos/pivot/superanimal_latest/pivot_cut_superanimal_quadruped_fasterrcnn_resnet50_fpn_v2_hrnet_w32.h5"
-    video_file = "./videos/pivot/pivot_cut.mp4"
-    output_file = "./dog_poses.slp"
-    
+if __name__ == "__main__":    
     # Check files exist
     if not Path(h5_file).exists():
         print(f"Error: H5 file not found: {h5_file}")
