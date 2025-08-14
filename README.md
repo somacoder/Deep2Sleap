@@ -1,5 +1,5 @@
 # Deep2Sleap
-Converts DeepLabCut Inference h5 output to Sleap Project for both Humans and Quadrapeds 
+Converts DeepLabCut Inference h5 output to Sleap Project for both Humans and Quadrupeds 
 
 ![alt text](https://ftp.somacoder.games/DLC2Sleap_icon2.png)
 ![alt text](./combined.gif)
